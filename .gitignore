@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Environment — commit .env.example, never .env
+.env
+backend/.env
+
+# Database
+*.db
+*.sqlite
+
+# Stray SQLite in-memory artefacts
+file::memory:
+
+# OS
+.DS_Store
