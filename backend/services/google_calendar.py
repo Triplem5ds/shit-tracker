@@ -1,6 +1,6 @@
 import os
 from typing import Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date as date_type
 
 import caldav
 from icalendar import Calendar as iCal, Event as iEvent
@@ -47,15 +47,12 @@ def _build_ical(task) -> bytes:
     event = iEvent()
     event.add("uid", task.id + UID_SUFFIX)
     event.add("summary", f"[{goal_title}] {task.title}")
-    event.add("description", (task.description or "") + f"\n\nCriticality: {task.criticality}\nState: {task.state}")
+    event.add("description", (task.description or "") + f"\n\nCriticality: {task.criticality}\nState: {task.state}\nTime needed: {task.time_needed} day(s)")
 
-    if task.start_date:
-        dt = datetime.combine(task.start_date, datetime.min.time())
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = datetime.now(timezone.utc)
-    event.add("dtstart", dt)
-    event.add("dtend", dt + timedelta(hours=task.time_needed))
+    start = task.start_date if task.start_date else date_type.today()
+    end = start + timedelta(days=task.time_needed)
+    event.add("dtstart", start)  # date object → iCal VALUE=DATE
+    event.add("dtend", end)
     event.add("dtstamp", datetime.now(timezone.utc))
 
     cal.add_component(event)
