@@ -1,6 +1,6 @@
 "use client";
-import { useMemo } from "react";
-import { Calendar, dateFnsLocalizer } from "react-big-calendar";
+import { useMemo, useState } from "react";
+import { Calendar, dateFnsLocalizer, type View } from "react-big-calendar";
 import { format, parse, startOfWeek, getDay } from "date-fns";
 import { enUS } from "date-fns/locale";
 import type { Task, GoogleCalendarEvent } from "@/lib/types";
@@ -32,6 +32,9 @@ function toDate(s: string | undefined, fallback: Date): Date {
 }
 
 export default function CalendarView({ tasks, googleEvents }: Props) {
+  const [view, setView] = useState<View>("month");
+  const [date, setDate] = useState(() => new Date());
+
   const events: CalEvent[] = useMemo(() => {
     const taskEvents: CalEvent[] = tasks
       .filter((t) => t.start_date)
@@ -87,7 +90,10 @@ export default function CalendarView({ tasks, googleEvents }: Props) {
         endAccessor="end"
         eventPropGetter={eventPropGetter}
         views={["month", "week", "day", "agenda"]}
-        defaultView="month"
+        view={view}
+        date={date}
+        onView={setView}
+        onNavigate={setDate}
         popup
       />
     </div>
