@@ -1,12 +1,30 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from database import get_db
+from database import get_db, SessionLocal
 from models import Task, TaskState, Criticality
 from schemas import TaskCreate, TaskUpdate, TaskOut
 from services.google_calendar import push_task_to_calendar, delete_calendar_event
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+
+def _sync_task_bg(task_id: str):
+    db = SessionLocal()
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            return
+        event_id = push_task_to_calendar(task, db)
+        if event_id and task.google_calendar_event_id != event_id:
+            task.google_calendar_event_id = event_id
+            db.commit()
+    finally:
+        db.close()
+
+
+def _delete_event_bg(event_uid: str):
+    delete_calendar_event(event_uid)
 
 
 @router.get("", response_model=List[TaskOut])
@@ -27,16 +45,12 @@ def list_tasks(
 
 
 @router.post("", response_model=TaskOut, status_code=201)
-def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
+def create_task(payload: TaskCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     task = Task(**payload.model_dump())
     db.add(task)
     db.commit()
     db.refresh(task)
-    event_id = push_task_to_calendar(task, db)
-    if event_id:
-        task.google_calendar_event_id = event_id
-        db.commit()
-        db.refresh(task)
+    background_tasks.add_task(_sync_task_bg, task.id)
     return task
 
 
@@ -49,7 +63,7 @@ def get_task(task_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/{task_id}", response_model=TaskOut)
-def update_task(task_id: str, payload: TaskUpdate, db: Session = Depends(get_db)):
+def update_task(task_id: str, payload: TaskUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -57,20 +71,17 @@ def update_task(task_id: str, payload: TaskUpdate, db: Session = Depends(get_db)
         setattr(task, field, value)
     db.commit()
     db.refresh(task)
-    event_id = push_task_to_calendar(task, db)
-    if event_id:
-        task.google_calendar_event_id = event_id
-        db.commit()
-        db.refresh(task)
+    background_tasks.add_task(_sync_task_bg, task.id)
     return task
 
 
 @router.delete("/{task_id}", status_code=204)
-def delete_task(task_id: str, db: Session = Depends(get_db)):
+def delete_task(task_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.google_calendar_event_id:
-        delete_calendar_event(task.google_calendar_event_id)
+    event_uid = task.google_calendar_event_id
     db.delete(task)
     db.commit()
+    if event_uid:
+        background_tasks.add_task(_delete_event_bg, event_uid)
